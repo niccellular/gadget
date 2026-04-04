@@ -1,5 +1,5 @@
 
-package com.atakmap.android.plugintemplate.plugin;
+package com.atakmap.android.gadget.plugin;
 
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -43,7 +43,7 @@ import gov.tak.api.ui.ToolbarItem;
 import gov.tak.api.ui.ToolbarItemAdapter;
 import gov.tak.platform.marshal.MarshalManager;
 
-public class PluginTemplate implements IPlugin {
+public class Gadget implements IPlugin {
 
     private static final String TAG = "Gadget";
 
@@ -68,7 +68,7 @@ public class PluginTemplate implements IPlugin {
         Button unloadBtn;
     }
 
-    public PluginTemplate(IServiceController serviceController) {
+    public Gadget(IServiceController serviceController) {
         this.serviceController = serviceController;
         final PluginContextProvider ctxProvider = serviceController
                 .getService(PluginContextProvider.class);
@@ -147,7 +147,6 @@ public class PluginTemplate implements IPlugin {
                     info.label = pkg;
                 }
 
-                // Pre-resolve the impl class
                 try {
                     Context pkgCtx = atakCtx.createPackageContext(pkg,
                             Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
@@ -174,11 +173,9 @@ public class PluginTemplate implements IPlugin {
         try {
             Context atakCtx = getAtakContext();
 
-            // Get the plugin's resources via createPackageContext
             Context pkgCtx = atakCtx.createPackageContext(info.packageName,
                     Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
 
-            // Build a classloader that sees both plugin APK and ATAK classes
             ApplicationInfo ai = atakCtx.getPackageManager()
                     .getApplicationInfo(info.packageName, 0);
             String dexCache = atakCtx.getDir("gadget_dex", Context.MODE_PRIVATE)
@@ -187,16 +184,11 @@ public class PluginTemplate implements IPlugin {
             DexClassLoader pluginLoader = new DexClassLoader(
                     ai.sourceDir, dexCache, ai.nativeLibraryDir, atakLoader);
 
-            // Wrap pkgCtx (which has the plugin's own resources natively)
-            // and only override classloader (to see ATAK classes) and
-            // file storage (to use a writable directory).
             Context wrappedCtx = new ContextWrapper(pkgCtx) {
                 @Override public ClassLoader getClassLoader() { return pluginLoader; }
                 @Override public Context getApplicationContext() { return this; }
                 @Override public Object getSystemService(String name) {
                     Object svc = super.getSystemService(name);
-                    // Re-bind the LayoutInflater to this context so it
-                    // uses our classloader for custom view instantiation.
                     if (LAYOUT_INFLATER_SERVICE.equals(name) && svc instanceof LayoutInflater) {
                         svc = ((LayoutInflater) svc).cloneInContext(this);
                     }

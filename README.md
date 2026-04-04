@@ -109,7 +109,7 @@ ContextWrapper(pkgCtx)
 ```
 app/src/main/
   java/.../plugin/
-    PluginTemplate.java    # Main plugin — discovery, loading, UI
+    Gadget.java            # Main plugin — discovery, loading, UI
     PluginNativeLoader.java # Boilerplate native loader (unused)
   res/
     layout/

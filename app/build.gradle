@@ -103,7 +103,7 @@ def supportedFlavors =
 
 android {
     compileSdk 36
-    namespace 'com.atakmap.android.plugintemplate.plugin'
+    namespace 'com.atakmap.android.gadget.plugin'
 
     buildFeatures {
         buildConfig = true
