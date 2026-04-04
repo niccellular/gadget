@@ -47,12 +47,9 @@ The APK will be at `app/build/outputs/apk/civ/release/ATAK-Plugin-gadget-*.apk`.
 ```bash
 # Install Gadget (signed with SDK debug key)
 adb install app/build/outputs/apk/civ/release/ATAK-Plugin-gadget-*.apk
-
-# Install any unsigned plugin you want to load
-adb install /path/to/unsigned-plugin.apk
 ```
 
-The unsigned plugin must be installed as a package on the device (`adb install`). ATAK will see it but refuse to load it. Gadget picks up the difference.
+The unsigned plugins you want to load must be installed on the device as Android packages. This can be done with `adb install`, by opening the APK from a file manager, or any other installation method. ATAK will discover the installed plugin but refuse to load it due to signature mismatch. Gadget picks up the difference.
 
 ### Loading Plugins
 
@@ -99,7 +96,7 @@ ContextWrapper(pkgCtx)
 
 ## Limitations
 
-- Plugins must be installed via `adb install` (they need to be registered as Android packages for `createPackageContext` to work)
+- Plugins must be installed as Android packages (via `adb install`, file manager, etc.) so that `createPackageContext` can access their resources
 - Plugins that register components directly with ATAK internals (outside of `IServiceController`) may not fully clean up on unload
 - The plugin's data directory is redirected to a subdirectory of ATAK's data dir, not the plugin's own package data dir
 - Built for ATAK CIV 5.7.0 SDK; other versions may need the `ATAK_VERSION` in `build.gradle` adjusted
