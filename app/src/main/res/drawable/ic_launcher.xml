@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Padlock body -->
+    <path
+        android:fillColor="#dfb228"
+        android:pathData="M12,22 L36,22 Q38,22 38,24 L38,40 Q38,42 36,42 L12,42 Q10,42 10,40 L10,24 Q10,22 12,22 Z" />
+
+    <!-- Keyhole circle -->
+    <path
+        android:fillColor="#1e1e1e"
+        android:pathData="M24,29 a3.5,3.5 0 1,1 0,0.01 Z" />
+
+    <!-- Keyhole slot -->
+    <path
+        android:fillColor="#1e1e1e"
+        android:pathData="M22.5,32 L25.5,32 L25,37 L23,37 Z" />
+
+    <!-- Shackle (open - right side lifted) -->
+    <path
+        android:strokeColor="#dfb228"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M16,22 L16,14 Q16,8 24,8 Q32,8 32,14 L32,16" />
+
+    <!-- Circuit traces -->
+    <path
+        android:strokeColor="#4fc3f7"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M38,28 L43,28" />
+    <path
+        android:strokeColor="#4fc3f7"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M38,33 L41,33" />
+    <path
+        android:strokeColor="#4fc3f7"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M38,38 L44,38" />
+    <path
+        android:strokeColor="#4fc3f7"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M10,28 L6,28" />
+    <path
+        android:strokeColor="#4fc3f7"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M10,35 L5,35" />
+
+    <!-- Circuit nodes -->
+    <path
+        android:fillColor="#4fc3f7"
+        android:pathData="M43,28 a1.5,1.5 0 1,1 0,0.01 Z" />
+    <path
+        android:fillColor="#4fc3f7"
+        android:pathData="M41,33 a1.5,1.5 0 1,1 0,0.01 Z" />
+    <path
+        android:fillColor="#4fc3f7"
+        android:pathData="M44,38 a1.5,1.5 0 1,1 0,0.01 Z" />
+    <path
+        android:fillColor="#4fc3f7"
+        android:pathData="M6,28 a1.5,1.5 0 1,1 0,0.01 Z" />
+    <path
+        android:fillColor="#4fc3f7"
+        android:pathData="M5,35 a1.5,1.5 0 1,1 0,0.01 Z" />
+
+</vector>

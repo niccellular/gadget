@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">Gadget</string>
+    <!-- description -->
+    <string name="app_desc">Loads Frida gadget and disables plugin signature verification</string>
+
+
+
+
+</resources>

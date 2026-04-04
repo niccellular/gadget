@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/card_bg"
+    android:padding="12dp"
+    android:layout_marginBottom="8dp">
+
+    <!-- Top row: status dot + name -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <View
+            android:id="@+id/status_dot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@drawable/status_dot"
+            android:layout_marginEnd="10dp" />
+
+        <TextView
+            android:id="@+id/plugin_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="@color/white70"
+            android:text="Not loaded" />
+    </LinearLayout>
+
+    <!-- Package name -->
+    <TextView
+        android:id="@+id/plugin_pkg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#66ffffff"
+        android:textSize="11sp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:paddingStart="20dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="8dp" />
+
+    <!-- Action buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <Button
+            android:id="@+id/load_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="LOAD"
+            android:textSize="12sp"
+            android:textColor="@color/btn_load_text"
+            android:background="@drawable/btn_load"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:minWidth="72dp"
+            android:textAllCaps="true" />
+
+        <Button
+            android:id="@+id/unload_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="UNLOAD"
+            android:textSize="12sp"
+            android:textColor="@color/btn_unload_text"
+            android:background="@drawable/btn_unload"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:minWidth="72dp"
+            android:textAllCaps="true"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

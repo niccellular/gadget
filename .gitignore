@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+.takdev/
+local.properties
+.idea/
+.DS_Store
+build/
+app/build/
+frida/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.dex
+*.class
+*.log
