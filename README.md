@@ -97,6 +97,7 @@ ContextWrapper(pkgCtx)
 ## Limitations
 
 - Plugins must be installed as Android packages (via `adb install`, file manager, etc.) so that `createPackageContext` can access their resources
+- **ProGuard mapping mismatch**: Official release plugins are obfuscated against the official ATAK build. If you're running the SDK/developer build of ATAK (unobfuscated), release plugins will fail with `NoClassDefFoundError` (e.g. `gov.tak.api.plugin.a` not found). This affects both Gadget and ATAK's own loader — it's not a Gadget-specific issue. Use matching builds (SDK plugin + SDK ATAK, or release plugin + release ATAK)
 - Plugins that register components directly with ATAK internals (outside of `IServiceController`) may not fully clean up on unload
 - The plugin's data directory is redirected to a subdirectory of ATAK's data dir, not the plugin's own package data dir
 - Built for ATAK CIV 5.7.0 SDK; other versions may need the `ATAK_VERSION` in `build.gradle` adjusted

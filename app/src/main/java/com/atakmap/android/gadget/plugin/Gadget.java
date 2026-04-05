@@ -107,7 +107,7 @@ public class Gadget implements IPlugin {
         for (IPlugin p : loadedPlugins) {
             try {
                 p.onStop();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 Log.e(TAG, "stop failed", e);
             }
         }
@@ -234,7 +234,10 @@ public class Gadget implements IPlugin {
 
             info.status = 2; // loaded
             Log.i(TAG, "loaded: " + info.packageName);
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Catch Throwable (not just Exception) because ProGuard
+            // mapping mismatches cause NoClassDefFoundError which
+            // extends Error, not Exception.
             info.status = 3; // failed
             Log.e(TAG, "failed to load " + info.packageName, e);
         }
@@ -246,7 +249,7 @@ public class Gadget implements IPlugin {
             try {
                 info.instance.onStop();
                 Log.i(TAG, "unloaded: " + info.packageName);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 Log.e(TAG, "onStop failed for " + info.packageName, e);
             }
             loadedPlugins.remove(info.instance);
