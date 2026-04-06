@@ -181,6 +181,29 @@ public class Gadget implements IPlugin {
             String dexCache = atakCtx.getDir("gadget_dex", Context.MODE_PRIVATE)
                     .getAbsolutePath();
             ClassLoader atakLoader = serviceController.getClass().getClassLoader();
+
+            // Verify the parent classloader can find the key ATAK SDK class
+            Log.d(TAG, "atakLoader: " + atakLoader.getClass().getName());
+            Log.d(TAG, "atakLoader parent: " + (atakLoader.getParent() != null ?
+                    atakLoader.getParent().getClass().getName() : "null"));
+            try {
+                Class<?> check = atakLoader.loadClass("gov.tak.api.plugin.IServiceController");
+                Log.d(TAG, "IServiceController found via atakLoader: " + check.getName());
+            } catch (Throwable t) {
+                Log.e(TAG, "IServiceController NOT found via atakLoader!", t);
+                // Fall back: try the context classloader or the boot classloader
+                ClassLoader fallback = Thread.currentThread().getContextClassLoader();
+                if (fallback != null) {
+                    try {
+                        fallback.loadClass("gov.tak.api.plugin.IServiceController");
+                        Log.d(TAG, "IServiceController found via thread context classloader");
+                        atakLoader = fallback;
+                    } catch (Throwable t2) {
+                        Log.e(TAG, "IServiceController NOT found via thread context CL either");
+                    }
+                }
+            }
+
             DexClassLoader pluginLoader = new DexClassLoader(
                     ai.sourceDir, dexCache, ai.nativeLibraryDir, atakLoader);
 
@@ -226,7 +249,22 @@ public class Gadget implements IPlugin {
             };
 
             Class<?> cls = pluginLoader.loadClass(info.implClass);
-            Constructor<?> ctor = cls.getConstructor(IServiceController.class);
+
+            // Use getDeclaredConstructors() instead of getConstructor(IServiceController.class)
+            // to avoid a direct class reference to IServiceController. On official ATAK builds,
+            // R8 can resolve the .class literal at method-frame setup time (before the try block),
+            // causing NoClassDefFoundError to bypass our catch.
+            Constructor<?> ctor = null;
+            for (Constructor<?> c : cls.getDeclaredConstructors()) {
+                if (c.getParameterCount() == 1) {
+                    ctor = c;
+                    break;
+                }
+            }
+            if (ctor == null)
+                throw new NoSuchMethodException(info.implClass + " has no 1-arg constructor");
+            ctor.setAccessible(true);
+
             IPlugin plugin = (IPlugin) ctor.newInstance(wrapped);
             plugin.onStart();
             loadedPlugins.add(plugin);
