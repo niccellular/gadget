@@ -387,8 +387,8 @@ public class Gadget implements IPlugin {
                 }
             }
             is.close();
-        } catch (Exception e) {
-            Log.e(TAG, "failed to read plugin.xml", e);
+        } catch (Exception ignored) {
+            // Expected for non-ATAK packages that match the intent filter
         }
         return null;
     }
