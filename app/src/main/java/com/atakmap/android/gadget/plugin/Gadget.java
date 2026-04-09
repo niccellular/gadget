@@ -180,29 +180,12 @@ public class Gadget implements IPlugin {
                     .getApplicationInfo(info.packageName, 0);
             String dexCache = atakCtx.getDir("gadget_dex", Context.MODE_PRIVATE)
                     .getAbsolutePath();
-            ClassLoader atakLoader = serviceController.getClass().getClassLoader();
-
-            // Verify the parent classloader can find the key ATAK SDK class
-            Log.d(TAG, "atakLoader: " + atakLoader.getClass().getName());
-            Log.d(TAG, "atakLoader parent: " + (atakLoader.getParent() != null ?
-                    atakLoader.getParent().getClass().getName() : "null"));
-            try {
-                Class<?> check = atakLoader.loadClass("gov.tak.api.plugin.IServiceController");
-                Log.d(TAG, "IServiceController found via atakLoader: " + check.getName());
-            } catch (Throwable t) {
-                Log.e(TAG, "IServiceController NOT found via atakLoader!", t);
-                // Fall back: try the context classloader or the boot classloader
-                ClassLoader fallback = Thread.currentThread().getContextClassLoader();
-                if (fallback != null) {
-                    try {
-                        fallback.loadClass("gov.tak.api.plugin.IServiceController");
-                        Log.d(TAG, "IServiceController found via thread context classloader");
-                        atakLoader = fallback;
-                    } catch (Throwable t2) {
-                        Log.e(TAG, "IServiceController NOT found via thread context CL either");
-                    }
-                }
-            }
+            // Use Gadget's own classloader as the parent. It can see all
+            // ATAK SDK classes (IServiceController, IPlugin, etc.) because
+            // ATAK loaded Gadget through it. serviceController.getClass()
+            // .getClassLoader() may return a stripped-down PathClassLoader
+            // that can't resolve SDK interfaces.
+            ClassLoader atakLoader = Gadget.class.getClassLoader();
 
             DexClassLoader pluginLoader = new DexClassLoader(
                     ai.sourceDir, dexCache, ai.nativeLibraryDir, atakLoader);
