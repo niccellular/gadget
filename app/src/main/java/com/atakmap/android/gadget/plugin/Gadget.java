@@ -185,10 +185,41 @@ public class Gadget implements IPlugin {
             // ATAK loaded Gadget through it. serviceController.getClass()
             // .getClassLoader() may return a stripped-down PathClassLoader
             // that can't resolve SDK interfaces.
-            ClassLoader atakLoader = Gadget.class.getClassLoader();
+            // On official ATAK, SDK classes (IServiceController, IPlugin, etc.)
+            // may be in a classloader that Gadget can access through ATAK's
+            // custom delegation but which doesn't follow standard parent-first
+            // delegation when used as a DexClassLoader parent.
+            //
+            // Solution: a compound classloader that explicitly tries all known
+            // classloaders that might have ATAK classes.
+            final ClassLoader gadgetCL = Gadget.class.getClassLoader();
+            final ClassLoader ipluginCL = IPlugin.class.getClassLoader();
+            final ClassLoader atakAppCL = atakCtx.getClassLoader();
+
+            ClassLoader compoundParent = new ClassLoader(ClassLoader.getSystemClassLoader()) {
+                @Override
+                protected Class<?> loadClass(String name, boolean resolve)
+                        throws ClassNotFoundException {
+                    // Check if already loaded
+                    Class<?> c = findLoadedClass(name);
+                    if (c != null) return c;
+
+                    // Try each known classloader
+                    ClassLoader[] candidates = { gadgetCL, ipluginCL, atakAppCL };
+                    for (ClassLoader cl : candidates) {
+                        if (cl == null) continue;
+                        try {
+                            c = cl.loadClass(name);
+                            if (c != null) return c;
+                        } catch (ClassNotFoundException ignored) {}
+                    }
+
+                    throw new ClassNotFoundException(name);
+                }
+            };
 
             DexClassLoader pluginLoader = new DexClassLoader(
-                    ai.sourceDir, dexCache, ai.nativeLibraryDir, atakLoader);
+                    ai.sourceDir, dexCache, ai.nativeLibraryDir, compoundParent);
 
             Context wrappedCtx = new ContextWrapper(pkgCtx) {
                 @Override public ClassLoader getClassLoader() { return pluginLoader; }
