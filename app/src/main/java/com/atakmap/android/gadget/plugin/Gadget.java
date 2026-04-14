@@ -180,46 +180,22 @@ public class Gadget implements IPlugin {
                     .getApplicationInfo(info.packageName, 0);
             String dexCache = atakCtx.getDir("gadget_dex", Context.MODE_PRIVATE)
                     .getAbsolutePath();
-            // Use Gadget's own classloader as the parent. It can see all
-            // ATAK SDK classes (IServiceController, IPlugin, etc.) because
-            // ATAK loaded Gadget through it. serviceController.getClass()
-            // .getClassLoader() may return a stripped-down PathClassLoader
-            // that can't resolve SDK interfaces.
-            // On official ATAK, SDK classes (IServiceController, IPlugin, etc.)
-            // may be in a classloader that Gadget can access through ATAK's
-            // custom delegation but which doesn't follow standard parent-first
-            // delegation when used as a DexClassLoader parent.
+            // ART's native class resolution (used during Constructor.newInstance)
+            // bypasses Java ClassLoader.loadClass() and walks DexPathList
+            // entries directly. Custom ClassLoader subclasses are rejected
+            // ("Unsupported class loader") and only BaseDexClassLoader chains
+            // are traversed. On official ATAK, SDK classes like IServiceController
+            // may be loaded through a custom findClass() mechanism that has no
+            // DexPathList entry, so they're invisible to native resolution.
             //
-            // Solution: a compound classloader that explicitly tries all known
-            // classloaders that might have ATAK classes.
-            final ClassLoader gadgetCL = Gadget.class.getClassLoader();
-            final ClassLoader ipluginCL = IPlugin.class.getClassLoader();
-            final ClassLoader atakAppCL = atakCtx.getClassLoader();
-
-            ClassLoader compoundParent = new ClassLoader(ClassLoader.getSystemClassLoader()) {
-                @Override
-                protected Class<?> loadClass(String name, boolean resolve)
-                        throws ClassNotFoundException {
-                    // Check if already loaded
-                    Class<?> c = findLoadedClass(name);
-                    if (c != null) return c;
-
-                    // Try each known classloader
-                    ClassLoader[] candidates = { gadgetCL, ipluginCL, atakAppCL };
-                    for (ClassLoader cl : candidates) {
-                        if (cl == null) continue;
-                        try {
-                            c = cl.loadClass(name);
-                            if (c != null) return c;
-                        } catch (ClassNotFoundException ignored) {}
-                    }
-
-                    throw new ClassNotFoundException(name);
-                }
-            };
+            // Fix: include ATAK's own APK in the dex path so IServiceController
+            // is in the DexPathList and ART can find it natively.
+            String atakApkPath = atakCtx.getApplicationInfo().sourceDir;
+            String combinedDexPath = ai.sourceDir + File.pathSeparator + atakApkPath;
 
             DexClassLoader pluginLoader = new DexClassLoader(
-                    ai.sourceDir, dexCache, ai.nativeLibraryDir, compoundParent);
+                    combinedDexPath, dexCache, ai.nativeLibraryDir,
+                    Gadget.class.getClassLoader());
 
             Context wrappedCtx = new ContextWrapper(pkgCtx) {
                 @Override public ClassLoader getClassLoader() { return pluginLoader; }
