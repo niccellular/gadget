@@ -180,22 +180,41 @@ public class Gadget implements IPlugin {
                     .getApplicationInfo(info.packageName, 0);
             String dexCache = atakCtx.getDir("gadget_dex", Context.MODE_PRIVATE)
                     .getAbsolutePath();
-            // ART's native class resolution (used during Constructor.newInstance)
-            // bypasses Java ClassLoader.loadClass() and walks DexPathList
-            // entries directly. Custom ClassLoader subclasses are rejected
-            // ("Unsupported class loader") and only BaseDexClassLoader chains
-            // are traversed. On official ATAK, SDK classes like IServiceController
-            // may be loaded through a custom findClass() mechanism that has no
-            // DexPathList entry, so they're invisible to native resolution.
+            // ART's native class resolution walks DexPathList entries AND
+            // sharedLibraryLoaders in BaseDexClassLoader chains. On official
+            // ATAK, SDK classes (IServiceController etc.) are provided through
+            // sharedLibraryLoaders — not in base.apk's DexPathList and not
+            // reachable through standard parent delegation during native
+            // resolution.
             //
-            // Fix: include ATAK's own APK in the dex path so IServiceController
-            // is in the DexPathList and ART can find it natively.
-            String atakApkPath = atakCtx.getApplicationInfo().sourceDir;
-            String combinedDexPath = ai.sourceDir + File.pathSeparator + atakApkPath;
+            // Fix: create the DexClassLoader for the plugin, then copy
+            // sharedLibraryLoaders from Gadget's classloader via reflection.
+            // This makes SDK classes visible to ART's native resolution.
+            ClassLoader gadgetCL = Gadget.class.getClassLoader();
 
             DexClassLoader pluginLoader = new DexClassLoader(
-                    combinedDexPath, dexCache, ai.nativeLibraryDir,
-                    Gadget.class.getClassLoader());
+                    ai.sourceDir, dexCache, ai.nativeLibraryDir, gadgetCL);
+
+            // Copy shared library loaders from Gadget's CL to ours
+            try {
+                Class<?> bdcl = Class.forName("dalvik.system.BaseDexClassLoader");
+                for (String fieldName : new String[]{
+                        "sharedLibraryLoaders", "sharedLibraryLoadersAfter"}) {
+                    try {
+                        java.lang.reflect.Field f = bdcl.getDeclaredField(fieldName);
+                        f.setAccessible(true);
+                        Object loaders = f.get(gadgetCL);
+                        if (loaders != null) {
+                            f.set(pluginLoader, loaders);
+                            Log.d(TAG, "copied " + fieldName + " to pluginLoader");
+                        }
+                    } catch (NoSuchFieldException ignored) {
+                        // Field may not exist on all Android versions
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "failed to copy shared library loaders", e);
+            }
 
             Context wrappedCtx = new ContextWrapper(pkgCtx) {
                 @Override public ClassLoader getClassLoader() { return pluginLoader; }
