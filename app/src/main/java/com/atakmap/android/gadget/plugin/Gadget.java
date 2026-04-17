@@ -21,6 +21,7 @@ import java.io.File;
 
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -70,6 +71,27 @@ public class Gadget implements IPlugin {
 
     public Gadget(IServiceController serviceController) {
         this.serviceController = serviceController;
+
+        // Bypass Android's hidden API restrictions so we can copy
+        // sharedLibraryLoaders between classloaders later.
+        // Uses meta-reflection: Class.getDeclaredMethod is public API,
+        // and when it accesses VMRuntime the caller frame is java.lang.Class
+        // (core-platform domain), bypassing the block.
+        try {
+            Method getDeclaredMethod = Class.class.getDeclaredMethod(
+                    "getDeclaredMethod", String.class, Class[].class);
+            Class<?> vmRuntime = Class.forName("dalvik.system.VMRuntime");
+            Method getRuntime = (Method) getDeclaredMethod.invoke(
+                    vmRuntime, "getRuntime", null);
+            Method setExemptions = (Method) getDeclaredMethod.invoke(
+                    vmRuntime, "setHiddenApiExemptions", new Class[]{String[].class});
+            Object runtime = getRuntime.invoke(null);
+            setExemptions.invoke(runtime, (Object) new String[]{"L"});
+            Log.d(TAG, "hidden API exemptions set");
+        } catch (Exception e) {
+            Log.w(TAG, "failed to set hidden API exemptions", e);
+        }
+
         final PluginContextProvider ctxProvider = serviceController
                 .getService(PluginContextProvider.class);
         if (ctxProvider != null) {
