@@ -190,6 +190,54 @@ public class Gadget implements IPlugin {
             ClassLoader pluginCL = pkgCtx.getClassLoader();
             ClassLoader gadgetCL = Gadget.class.getClassLoader();
 
+            // Diagnostic: walk Gadget's parent chain and check for
+            // IServiceController at each level
+            Log.d(TAG, "--- Gadget CL chain ---");
+            ClassLoader walk = gadgetCL;
+            int depth = 0;
+            while (walk != null) {
+                String has;
+                try {
+                    walk.loadClass("gov.tak.api.plugin.IServiceController");
+                    has = "HAS IServiceController";
+                } catch (ClassNotFoundException e) {
+                    has = "no IServiceController";
+                }
+                Log.d(TAG, "  [" + depth + "] " + walk.getClass().getName()
+                        + " — " + has);
+                // Also check for sharedLibraryLoaders field
+                try {
+                    Field slField = walk.getClass().getSuperclass() != null
+                            ? walk.getClass().getSuperclass().getDeclaredField("sharedLibraryLoaders")
+                            : null;
+                    if (slField != null) {
+                        slField.setAccessible(true);
+                        Object sl = slField.get(walk);
+                        if (sl != null) {
+                            ClassLoader[] loaders = (ClassLoader[]) sl;
+                            Log.d(TAG, "    sharedLibraryLoaders: " + loaders.length);
+                            for (int i = 0; i < loaders.length; i++) {
+                                String slHas;
+                                try {
+                                    loaders[i].loadClass("gov.tak.api.plugin.IServiceController");
+                                    slHas = "HAS IServiceController";
+                                } catch (ClassNotFoundException e) {
+                                    slHas = "no IServiceController";
+                                }
+                                Log.d(TAG, "      sl[" + i + "] "
+                                        + loaders[i].getClass().getName()
+                                        + " — " + slHas);
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // sharedLibraryLoaders access may be blocked
+                }
+                walk = walk.getParent();
+                depth++;
+            }
+            Log.d(TAG, "--- end chain ---");
+
             try {
                 Field parentField = ClassLoader.class.getDeclaredField("parent");
                 parentField.setAccessible(true);
