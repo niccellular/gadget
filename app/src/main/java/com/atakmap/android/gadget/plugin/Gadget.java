@@ -21,12 +21,12 @@ import java.io.File;
 
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import dalvik.system.DexClassLoader;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
@@ -71,26 +71,6 @@ public class Gadget implements IPlugin {
 
     public Gadget(IServiceController serviceController) {
         this.serviceController = serviceController;
-
-        // Bypass Android's hidden API restrictions so we can copy
-        // sharedLibraryLoaders between classloaders later.
-        // Uses meta-reflection: Class.getDeclaredMethod is public API,
-        // and when it accesses VMRuntime the caller frame is java.lang.Class
-        // (core-platform domain), bypassing the block.
-        try {
-            Method getDeclaredMethod = Class.class.getDeclaredMethod(
-                    "getDeclaredMethod", String.class, Class[].class);
-            Class<?> vmRuntime = Class.forName("dalvik.system.VMRuntime");
-            Method getRuntime = (Method) getDeclaredMethod.invoke(
-                    vmRuntime, "getRuntime", null);
-            Method setExemptions = (Method) getDeclaredMethod.invoke(
-                    vmRuntime, "setHiddenApiExemptions", new Class[]{String[].class});
-            Object runtime = getRuntime.invoke(null);
-            setExemptions.invoke(runtime, (Object) new String[]{"L"});
-            Log.d(TAG, "hidden API exemptions set");
-        } catch (Exception e) {
-            Log.w(TAG, "failed to set hidden API exemptions", e);
-        }
 
         final PluginContextProvider ctxProvider = serviceController
                 .getService(PluginContextProvider.class);
@@ -198,48 +178,29 @@ public class Gadget implements IPlugin {
             Context pkgCtx = atakCtx.createPackageContext(info.packageName,
                     Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
 
-            ApplicationInfo ai = atakCtx.getPackageManager()
-                    .getApplicationInfo(info.packageName, 0);
-            String dexCache = atakCtx.getDir("gadget_dex", Context.MODE_PRIVATE)
-                    .getAbsolutePath();
-            // ART's native class resolution walks DexPathList entries AND
-            // sharedLibraryLoaders in BaseDexClassLoader chains. On official
-            // ATAK, SDK classes (IServiceController etc.) are provided through
-            // sharedLibraryLoaders — not in base.apk's DexPathList and not
-            // reachable through standard parent delegation during native
-            // resolution.
+            // Use the classloader from createPackageContext — it's a real
+            // PathClassLoader that ART recognizes for native resolution.
+            // Its problem: parent is the system PathClassLoader which
+            // doesn't have ATAK SDK classes. Fix: patch its parent to
+            // be Gadget's classloader (which has shared library loaders
+            // for SDK classes).
             //
-            // Fix: create the DexClassLoader for the plugin, then copy
-            // sharedLibraryLoaders from Gadget's classloader via reflection.
-            // This makes SDK classes visible to ART's native resolution.
+            // ClassLoader.parent is java.lang (not dalvik internal),
+            // so it shouldn't be blocked by hidden API restrictions.
+            ClassLoader pluginCL = pkgCtx.getClassLoader();
             ClassLoader gadgetCL = Gadget.class.getClassLoader();
 
-            DexClassLoader pluginLoader = new DexClassLoader(
-                    ai.sourceDir, dexCache, ai.nativeLibraryDir, gadgetCL);
-
-            // Copy shared library loaders from Gadget's CL to ours
             try {
-                Class<?> bdcl = Class.forName("dalvik.system.BaseDexClassLoader");
-                for (String fieldName : new String[]{
-                        "sharedLibraryLoaders", "sharedLibraryLoadersAfter"}) {
-                    try {
-                        java.lang.reflect.Field f = bdcl.getDeclaredField(fieldName);
-                        f.setAccessible(true);
-                        Object loaders = f.get(gadgetCL);
-                        if (loaders != null) {
-                            f.set(pluginLoader, loaders);
-                            Log.d(TAG, "copied " + fieldName + " to pluginLoader");
-                        }
-                    } catch (NoSuchFieldException ignored) {
-                        // Field may not exist on all Android versions
-                    }
-                }
+                Field parentField = ClassLoader.class.getDeclaredField("parent");
+                parentField.setAccessible(true);
+                parentField.set(pluginCL, gadgetCL);
+                Log.d(TAG, "patched parent CL to Gadget's CL");
             } catch (Exception e) {
-                Log.w(TAG, "failed to copy shared library loaders", e);
+                Log.e(TAG, "failed to patch parent classloader", e);
             }
 
             Context wrappedCtx = new ContextWrapper(pkgCtx) {
-                @Override public ClassLoader getClassLoader() { return pluginLoader; }
+                @Override public ClassLoader getClassLoader() { return pluginCL; }
                 @Override public Context getApplicationContext() { return this; }
                 @Override public Object getSystemService(String name) {
                     Object svc = super.getSystemService(name);
@@ -279,7 +240,7 @@ public class Gadget implements IPlugin {
                 }
             };
 
-            Class<?> cls = pluginLoader.loadClass(info.implClass);
+            Class<?> cls = pluginCL.loadClass(info.implClass);
 
             // Use getDeclaredConstructors() instead of getConstructor(IServiceController.class)
             // to avoid a direct class reference to IServiceController. On official ATAK builds,
