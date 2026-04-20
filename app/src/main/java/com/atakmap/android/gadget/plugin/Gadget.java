@@ -2,31 +2,21 @@
 package com.atakmap.android.gadget.plugin;
 
 import android.content.Context;
-import android.content.ContextWrapper;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.res.AssetManager;
-import android.content.res.Resources;
 import android.util.Log;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import java.io.File;
-
 import java.io.InputStream;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
@@ -54,7 +44,6 @@ public class Gadget implements IPlugin {
     ToolbarItem toolbarItem;
     Pane templatePane;
 
-    private final List<IPlugin> loadedPlugins = new ArrayList<>();
     private final List<PluginInfo> discoveredPlugins = new ArrayList<>();
 
     private static class PluginInfo {
@@ -106,14 +95,6 @@ public class Gadget implements IPlugin {
 
     @Override
     public void onStop() {
-        for (IPlugin p : loadedPlugins) {
-            try {
-                p.onStop();
-            } catch (Throwable e) {
-                Log.e(TAG, "stop failed", e);
-            }
-        }
-        loadedPlugins.clear();
         discoveredPlugins.clear();
 
         if (uiService == null)
@@ -173,149 +154,36 @@ public class Gadget implements IPlugin {
         updateRow(info);
 
         try {
-            Context atakCtx = getAtakContext();
-
-            Context pkgCtx = atakCtx.createPackageContext(info.packageName,
-                    Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
-
-            // Use the classloader from createPackageContext — it's a real
-            // PathClassLoader that ART recognizes for native resolution.
-            // Its problem: parent is the system PathClassLoader which
-            // doesn't have ATAK SDK classes. Fix: patch its parent to
-            // be Gadget's classloader (which has shared library loaders
-            // for SDK classes).
+            // Instead of building our own classloader (which can't replicate
+            // ATAK's shared library setup for SDK class resolution), we use
+            // ATAK's own loadPlugin() method. This handles classloader setup,
+            // ProGuard name mapping, shared library loaders — everything.
             //
-            // ClassLoader.parent is java.lang (not dalvik internal),
-            // so it shouldn't be blocked by hidden API restrictions.
-            ClassLoader pluginCL = pkgCtx.getClassLoader();
-            ClassLoader gadgetCL = Gadget.class.getClassLoader();
+            // The only thing stopping ATAK from loading this plugin is the
+            // signature check. We bypass it by setting the private
+            // 'allTrusted' field to true before calling loadPlugin, then
+            // restoring it after.
+            AtakPluginRegistry registry = AtakPluginRegistry.get();
 
-            // Diagnostic: walk Gadget's parent chain and check for
-            // IServiceController at each level
-            Log.d(TAG, "--- Gadget CL chain ---");
-            ClassLoader walk = gadgetCL;
-            int depth = 0;
-            while (walk != null) {
-                String has;
-                try {
-                    walk.loadClass("gov.tak.api.plugin.IServiceController");
-                    has = "HAS IServiceController";
-                } catch (ClassNotFoundException e) {
-                    has = "no IServiceController";
-                }
-                Log.d(TAG, "  [" + depth + "] " + walk.getClass().getName()
-                        + " — " + has);
-                // Also check for sharedLibraryLoaders field
-                try {
-                    Field slField = walk.getClass().getSuperclass() != null
-                            ? walk.getClass().getSuperclass().getDeclaredField("sharedLibraryLoaders")
-                            : null;
-                    if (slField != null) {
-                        slField.setAccessible(true);
-                        Object sl = slField.get(walk);
-                        if (sl != null) {
-                            ClassLoader[] loaders = (ClassLoader[]) sl;
-                            Log.d(TAG, "    sharedLibraryLoaders: " + loaders.length);
-                            for (int i = 0; i < loaders.length; i++) {
-                                String slHas;
-                                try {
-                                    loaders[i].loadClass("gov.tak.api.plugin.IServiceController");
-                                    slHas = "HAS IServiceController";
-                                } catch (ClassNotFoundException e) {
-                                    slHas = "no IServiceController";
-                                }
-                                Log.d(TAG, "      sl[" + i + "] "
-                                        + loaders[i].getClass().getName()
-                                        + " — " + slHas);
-                            }
-                        }
-                    }
-                } catch (Throwable ignored) {
-                    // sharedLibraryLoaders access may be blocked
-                }
-                walk = walk.getParent();
-                depth++;
-            }
-            Log.d(TAG, "--- end chain ---");
+            Field allTrustedField = AtakPluginRegistry.class
+                    .getDeclaredField("allTrusted");
+            allTrustedField.setAccessible(true);
+            boolean origValue = allTrustedField.getBoolean(registry);
 
             try {
-                Field parentField = ClassLoader.class.getDeclaredField("parent");
-                parentField.setAccessible(true);
-                parentField.set(pluginCL, gadgetCL);
-                Log.d(TAG, "patched parent CL to Gadget's CL");
-            } catch (Exception e) {
-                Log.e(TAG, "failed to patch parent classloader", e);
+                allTrustedField.setBoolean(registry, true);
+                boolean success = registry.loadPlugin(info.packageName);
+                if (success) {
+                    info.status = 2; // loaded
+                    Log.i(TAG, "loaded via ATAK: " + info.packageName);
+                } else {
+                    info.status = 3; // failed
+                    Log.e(TAG, "ATAK loadPlugin returned false: " + info.packageName);
+                }
+            } finally {
+                allTrustedField.setBoolean(registry, origValue);
             }
-
-            Context wrappedCtx = new ContextWrapper(pkgCtx) {
-                @Override public ClassLoader getClassLoader() { return pluginCL; }
-                @Override public Context getApplicationContext() { return this; }
-                @Override public Object getSystemService(String name) {
-                    Object svc = super.getSystemService(name);
-                    if (LAYOUT_INFLATER_SERVICE.equals(name) && svc instanceof LayoutInflater) {
-                        svc = ((LayoutInflater) svc).cloneInContext(this);
-                    }
-                    return svc;
-                }
-                @Override public SharedPreferences getSharedPreferences(String name, int mode) {
-                    return atakCtx.getSharedPreferences(
-                            "gadget_" + info.packageName + "_" + name, mode);
-                }
-                @Override public File getDir(String name, int mode) {
-                    return atakCtx.getDir("gadget_" + info.packageName + "_" + name, mode);
-                }
-                @Override public File getFilesDir() {
-                    return atakCtx.getDir("gadget_" + info.packageName, Context.MODE_PRIVATE);
-                }
-            };
-
-            IServiceController wrapped = new IServiceController() {
-                @Override
-                @SuppressWarnings("unchecked")
-                public <T> T getService(Class<T> clz) {
-                    if (clz == PluginContextProvider.class) {
-                        return (T) (PluginContextProvider) () -> wrappedCtx;
-                    }
-                    return serviceController.getService(clz);
-                }
-                @Override
-                public <T> boolean registerComponent(Class<T> c, T v) {
-                    return serviceController.registerComponent(c, v);
-                }
-                @Override
-                public <T> boolean unregisterComponent(Class<T> c, T v) {
-                    return serviceController.unregisterComponent(c, v);
-                }
-            };
-
-            Class<?> cls = pluginCL.loadClass(info.implClass);
-
-            // Use getDeclaredConstructors() instead of getConstructor(IServiceController.class)
-            // to avoid a direct class reference to IServiceController. On official ATAK builds,
-            // R8 can resolve the .class literal at method-frame setup time (before the try block),
-            // causing NoClassDefFoundError to bypass our catch.
-            Constructor<?> ctor = null;
-            for (Constructor<?> c : cls.getDeclaredConstructors()) {
-                if (c.getParameterCount() == 1) {
-                    ctor = c;
-                    break;
-                }
-            }
-            if (ctor == null)
-                throw new NoSuchMethodException(info.implClass + " has no 1-arg constructor");
-            ctor.setAccessible(true);
-
-            IPlugin plugin = (IPlugin) ctor.newInstance(wrapped);
-            plugin.onStart();
-            loadedPlugins.add(plugin);
-            info.instance = plugin;
-
-            info.status = 2; // loaded
-            Log.i(TAG, "loaded: " + info.packageName);
         } catch (Throwable e) {
-            // Catch Throwable (not just Exception) because ProGuard
-            // mapping mismatches cause NoClassDefFoundError which
-            // extends Error, not Exception.
             info.status = 3; // failed
             Log.e(TAG, "failed to load " + info.packageName, e);
         }
@@ -323,15 +191,12 @@ public class Gadget implements IPlugin {
     }
 
     private void unloadPlugin(PluginInfo info) {
-        if (info.instance != null) {
-            try {
-                info.instance.onStop();
-                Log.i(TAG, "unloaded: " + info.packageName);
-            } catch (Throwable e) {
-                Log.e(TAG, "onStop failed for " + info.packageName, e);
-            }
-            loadedPlugins.remove(info.instance);
-            info.instance = null;
+        try {
+            AtakPluginRegistry registry = AtakPluginRegistry.get();
+            registry.unloadPlugin(info.packageName);
+            Log.i(TAG, "unloaded: " + info.packageName);
+        } catch (Throwable e) {
+            Log.e(TAG, "unload failed for " + info.packageName, e);
         }
         info.status = 0;
         updateRow(info);
