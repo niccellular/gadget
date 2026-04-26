@@ -37,6 +37,26 @@ import gov.tak.platform.marshal.MarshalManager;
 public class Gadget implements IPlugin {
 
     private static final String TAG = "Gadget";
+    private static boolean hooked = false;
+
+    private static native boolean nativeHook(Class<?> registryClass);
+
+    // Replacement methods — same signature as verifySignature/verifyTrust.
+    // The native hooker copies these methods' ArtMethod entry points over
+    // the targets. Two methods so we can compute ArtMethod size from the
+    // difference between their jmethodID pointers.
+    // These methods MUST be trivial — no method calls, no string refs,
+    // no field access. The bytecode runs in the target method's DEX
+    // context where our DEX indices don't apply. Pure return-true
+    // compiles to const/4 + return which needs zero DEX resolution.
+    @SuppressWarnings("unused")
+    public static boolean alwaysTrue1(Context ctx, String pkg) {
+        return true;
+    }
+    @SuppressWarnings("unused")
+    public static boolean alwaysTrue2(Context ctx, String pkg) {
+        return true;
+    }
 
     IServiceController serviceController;
     Context pluginContext;
@@ -154,34 +174,31 @@ public class Gadget implements IPlugin {
         updateRow(info);
 
         try {
-            // Instead of building our own classloader (which can't replicate
-            // ATAK's shared library setup for SDK class resolution), we use
-            // ATAK's own loadPlugin() method. This handles classloader setup,
-            // ProGuard name mapping, shared library loaders — everything.
-            //
-            // The only thing stopping ATAK from loading this plugin is the
-            // signature check. We bypass it by setting the private
-            // 'allTrusted' field to true before calling loadPlugin, then
-            // restoring it after.
-            AtakPluginRegistry registry = AtakPluginRegistry.get();
-
-            Field allTrustedField = AtakPluginRegistry.class
-                    .getDeclaredField("allTrusted");
-            allTrustedField.setAccessible(true);
-            boolean origValue = allTrustedField.getBoolean(registry);
-
-            try {
-                allTrustedField.setBoolean(registry, true);
-                boolean success = registry.loadPlugin(info.packageName);
-                if (success) {
-                    info.status = 2; // loaded
-                    Log.i(TAG, "loaded via ATAK: " + info.packageName);
-                } else {
-                    info.status = 3; // failed
-                    Log.e(TAG, "ATAK loadPlugin returned false: " + info.packageName);
+            // Hook verifySignature/verifyTrust to always return true.
+            // This only needs to happen once — the hooks persist for the
+            // process lifetime.
+            if (!hooked) {
+                try {
+                    PluginNativeLoader.init(pluginContext);
+                    PluginNativeLoader.loadLibrary("hooker");
+                    hooked = nativeHook(AtakPluginRegistry.class);
+                    Log.i(TAG, "hook result: " + hooked);
+                } catch (Throwable e) {
+                    Log.e(TAG, "native hook failed", e);
                 }
-            } finally {
-                allTrustedField.setBoolean(registry, origValue);
+            }
+
+            // Use ATAK's own loadPlugin — it handles classloader setup,
+            // ProGuard name mapping, shared library loaders, everything.
+            // With verifySignature hooked, the signature check passes.
+            AtakPluginRegistry registry = AtakPluginRegistry.get();
+            boolean success = registry.loadPlugin(info.packageName);
+            if (success) {
+                info.status = 2; // loaded
+                Log.i(TAG, "loaded via ATAK: " + info.packageName);
+            } else {
+                info.status = 3; // failed
+                Log.e(TAG, "ATAK loadPlugin returned false: " + info.packageName);
             }
         } catch (Throwable e) {
             info.status = 3; // failed

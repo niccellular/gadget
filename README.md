@@ -1,129 +1,133 @@
 # Gadget
 
-An ATAK plugin that loads other plugins which were rejected by ATAK's signature verification.
+An ATAK plugin that loads locally-built plugins on official ATAK releases, bypassing TAK's signature verification. Designed to eliminate the multi-day signing pipeline wait during plugin development.
 
 ## How It Works
 
-ATAK verifies that plugins are signed with a trusted certificate before loading them. Plugins signed with a different key are discovered but never instantiated. Gadget works around this without patching or hooking anything in ATAK.
+Official ATAK verifies plugin signatures before loading them. Plugins not signed by the TAK pipeline are rejected. Gadget bypasses this with a JNI-based ART method hook:
 
-**The approach:**
+1. **Gadget** is signed through the TAK pipeline and loads normally on official ATAK
+2. On first plugin load, it loads `libhooker.so` which patches `AtakPluginRegistry.verifySignature` and `verifyTrust` at the ART method level — replacing their entry points with a trivial `return true`
+3. Then calls `AtakPluginRegistry.loadPlugin()` — ATAK handles all classloader setup, ProGuard name resolution, shared library loaders, and resource contexts
+4. The loaded plugin runs with full ATAK access, identical to a pipeline-signed plugin
 
-1. Gadget itself is properly signed and loads normally into ATAK
-2. On start, it queries `PackageManager` for all installed packages that declare the `com.atakmap.app.component` intent filter (how ATAK discovers plugins)
-3. It compares this list against `AtakPluginRegistry.getPluginsLoaded()` to find plugins that are installed but were not loaded (i.e. rejected by signature verification)
-4. When the user clicks **Load**, Gadget:
-   - Creates a `Context` for the target plugin via `createPackageContext()` (provides the plugin's own resources)
-   - Creates a `DexClassLoader` with the plugin's APK and ATAK's classloader as parent (so both plugin classes and ATAK SDK classes are visible)
-   - Wraps the context to override `getClassLoader()` and `getSystemService(LAYOUT_INFLATER_SERVICE)` so layout inflation finds both plugin resources and ATAK custom views
-   - Reads the plugin's `assets/plugin.xml` to find the `IPlugin` implementation class
-   - Instantiates it with a wrapped `IServiceController` that provides the correct `PluginContextProvider`
-   - Calls `onStart()`
+## Setup
 
-No Frida, no native code, no method hooking. Pure Java classloader bridging.
+### 1. Install the ProGuard Mapping
 
-## Usage
+Official ATAK obfuscates SDK class names (e.g. `IServiceController` becomes `gov.tak.api.plugin.a`). Locally-built plugins must use the same obfuscated names, or ATAK can't resolve them.
 
-### Prerequisites
-
-- ATAK CIV 5.7.0 installed
-- ATAK CIV 5.7.0 SDK (for building)
-- Android device (arm64 or arm32)
-
-### Building
+Download `mapping.zip` from the [Releases](https://github.com/niccellular/gadget/releases) page. It contains `mapping.txt` files for each ATAK version. Copy the one matching your ATAK version into your SDK root:
 
 ```bash
-# Copy template.local.properties to local.properties and set sdk.dir
-cp template.local.properties local.properties
-# Edit local.properties to set: sdk.dir=/path/to/android/sdk
+# Example for ATAK 5.7.0
+cp mapping-5.7.0.txt /path/to/ATAK-CIV-5.7.0.0-SDK/mapping.txt
+```
 
-# Build
+The SDK's build system (`-applymapping <atak.proguard.mapping>`) picks this up automatically. All subsequent `./gradlew assembleCivRelease` builds will produce correctly obfuscated bytecode.
+
+### 2. Install Gadget
+
+Download the signed Gadget APK for your ATAK version from [Releases](https://github.com/niccellular/gadget/releases) and install it:
+
+```bash
+adb install gadget-5.7.0-signed.apk
+```
+
+### 3. Install Your Plugin
+
+Build your plugin locally and install it on the device:
+
+```bash
+cd /path/to/your-plugin
 ./gradlew assembleCivRelease
+adb install app/build/outputs/apk/civ/release/*.apk
 ```
 
-The APK will be at `app/build/outputs/apk/civ/release/ATAK-Plugin-gadget-*.apk`.
+ATAK will discover the plugin but refuse to load it (signature mismatch). Gadget picks up the difference.
 
-### Installing
-
-```bash
-# Install Gadget (signed with SDK debug key)
-adb install app/build/outputs/apk/civ/release/ATAK-Plugin-gadget-*.apk
-```
-
-The unsigned plugins you want to load must be installed on the device as Android packages. This can be done with `adb install`, by opening the APK from a file manager, or any other installation method. ATAK will discover the installed plugin but refuse to load it due to signature mismatch. Gadget picks up the difference.
-
-### Loading Plugins
+## Loading Plugins
 
 1. Open ATAK
-2. Load the Gadget plugin (it will appear in the plugin manager)
+2. Load the Gadget plugin from the plugin manager
 3. Tap the Gadget toolbar icon (open padlock)
 4. You'll see a list of installed-but-unloaded plugins
 5. Tap **Load** on any plugin
-6. Green dot = loaded successfully
+6. Green dot = loaded and running
 7. Tap **Unload** to stop it
 
 ## UI
-
-Each discovered plugin is shown as a card with:
 
 | Element | Meaning |
 |---------|---------|
 | Red dot | Not loaded |
 | Yellow dot | Loading |
 | Green dot | Loaded and running |
-| **LOAD** button | Load the plugin |
-| **UNLOAD** button | Stop the plugin (calls `onStop()`) |
-| **RETRY** button | Shown after a failed load attempt |
+| **LOAD** | Load the plugin |
+| **UNLOAD** | Stop the plugin |
+| **RETRY** | Shown after a failed attempt |
 
-## How the Context Wrapping Works
+## Dev Workflow
 
-ATAK plugins expect a `Context` from `PluginContextProvider.getPluginContext()` that provides:
+Once set up, the development cycle is:
 
-- **Resources/Assets** from their own APK (for `R.layout.*`, `R.string.*`, etc.)
-- **ClassLoader** that can find both their own classes and ATAK SDK classes (for custom views like `PluginSpinner`)
-- **LayoutInflater** bound to the correct context (so `PluginLayoutInflater.inflate()` works)
-- **SharedPreferences/Files** in a writable directory
+1. Edit plugin code
+2. `./gradlew assembleCivRelease`
+3. `adb install app/build/outputs/apk/civ/release/*.apk`
+4. Tap **Load** in Gadget
 
-Gadget provides all of this by wrapping the `Context` from `createPackageContext()`:
+No pipeline submission, no signing wait.
 
+## How the Hook Works
+
+The JNI hooker (`hooker.c`) performs ART method replacement:
+
+1. Gets `jmethodID` for `verifySignature` and `verifyTrust` — on ART, `jmethodID` IS the `ArtMethod*` pointer
+2. Detects `ArtMethod` struct size by comparing pointers of two consecutive methods (`alwaysTrue1`, `alwaysTrue2`)
+3. Copies `data_` and `entry_point_from_quick_compiled_code_` (offset 16+) from `alwaysTrue1` to each target method
+4. Preserves `declaring_class_` and `access_flags_` (offset 0-15) so ART's method resolution still works
+
+`alwaysTrue1` is a trivial Java method (`return true`) whose bytecode (`const/4 v0, 1; return v0`) needs zero DEX constant pool resolution — safe to run in any DEX context.
+
+After hooking, `AtakPluginRegistry.loadPlugin()` is called. ATAK handles everything: classloader creation with shared library loaders, ProGuard-obfuscated class resolution, resource contexts, native library loading, and plugin lifecycle management.
+
+## Building from Source
+
+```bash
+cp template.local.properties local.properties
+# Edit local.properties: sdk.dir=/path/to/android/sdk
+
+./gradlew assembleCivRelease
 ```
-ContextWrapper(pkgCtx)
-  getClassLoader()       -> DexClassLoader(plugin.apk, parent=ATAK classloader)
-  getSystemService()     -> LayoutInflater.cloneInContext(this)
-  getSharedPreferences() -> redirected to ATAK's data directory
-  getFilesDir()          -> redirected to ATAK's data directory
-  everything else        -> delegates to pkgCtx (plugin's own resources)
-```
 
-## Limitations
-
-- Plugins must be installed as Android packages (via `adb install`, file manager, etc.) so that `createPackageContext` can access their resources
-- **ProGuard mapping mismatch**: Official release plugins are obfuscated against the official ATAK build. If you're running the SDK/developer build of ATAK (unobfuscated), release plugins will fail with `NoClassDefFoundError` (e.g. `gov.tak.api.plugin.a` not found). This affects both Gadget and ATAK's own loader — it's not a Gadget-specific issue. Use matching builds (SDK plugin + SDK ATAK, or release plugin + release ATAK)
-- Plugins that register components directly with ATAK internals (outside of `IServiceController`) may not fully clean up on unload
-- The plugin's data directory is redirected to a subdirectory of ATAK's data dir, not the plugin's own package data dir
-- Built for ATAK CIV 5.7.0 SDK; other versions may need the `ATAK_VERSION` in `build.gradle` adjusted
+The APK will be at `app/build/outputs/apk/civ/release/ATAK-Plugin-gadget-*.apk`. This SDK-signed build works on the SDK developer build of ATAK. For official ATAK, submit the source to the TAK signing pipeline.
 
 ## Project Structure
 
 ```
 app/src/main/
   java/.../plugin/
-    Gadget.java            # Main plugin — discovery, loading, UI
-    PluginNativeLoader.java # Boilerplate native loader (unused)
+    Gadget.java            # Plugin discovery, UI, hook loading, loadPlugin
+    PluginNativeLoader.java # Native library loader utility
+  cpp/
+    hooker.c               # ART method replacement (verifySignature/verifyTrust)
+    CMakeLists.txt          # Native build config
   res/
     layout/
-      main_layout.xml      # Pane with plugin list
-      plugin_row.xml       # Card for each plugin
+      main_layout.xml      # Plugin list pane
+      plugin_row.xml       # Card per plugin
     drawable/
       ic_launcher.xml      # Open padlock icon
-      card_bg.xml          # Card background
-      btn_load.xml         # Load button style
-      btn_unload.xml       # Unload button style
-      status_dot.xml       # Status indicator
-    values/
-      colors.xml           # Color palette
   assets/
     plugin.xml             # ATAK plugin descriptor
 ```
+
+## Limitations
+
+- Plugins must be installed as Android packages (`adb install`, file manager, etc.)
+- The ProGuard mapping must match the ATAK version on the device — a 5.7.0 mapping won't work with ATAK 5.6.0
+- Gadget must be signed through the TAK pipeline for each ATAK version you target
+- The ART method hook assumes a 32-byte `ArtMethod` struct with `data_` at offset 16 and `entry_point` at offset 24 (ARM64, Android 12+). Other architectures or future ART changes may require adjustment
 
 ## License
 
