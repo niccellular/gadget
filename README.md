@@ -11,27 +11,39 @@ Official ATAK verifies plugin signatures before loading them. Plugins not signed
 3. Then calls `AtakPluginRegistry.loadPlugin()` — ATAK handles all classloader setup, ProGuard name resolution, shared library loaders, and resource contexts
 4. The loaded plugin runs with full ATAK access, identical to a pipeline-signed plugin
 
+## ATAK 5.8 support
+
+The source targets the ATAK `5.8.0` plugin API (`com.atakmap.app@5.8.0.CIV`),
+including ATAK CIV 5.8.0.3. Build with the matching 5.8 SDK. Gadget itself still
+requires TAK pipeline signing before official ATAK will load it.
+
+The current `0.2` release assets only cover ATAK 5.5–5.7. They do not include a
+5.8 Gadget APK or a 5.8 ProGuard mapping. Do not reuse those APKs or mappings on
+5.8. A signed 5.8 Gadget build and the matching official host mapping must be
+provided before the official-host workflow below can be validated. See
+[the 5.8 validation checklist](docs/atak-5.8-validation.md).
+
 ## Setup
 
 ### 1. Install the ProGuard Mapping
 
 Official ATAK obfuscates SDK class names (e.g. `IServiceController` becomes `gov.tak.api.plugin.a`). Locally-built plugins must use the same obfuscated names, or ATAK can't resolve them.
 
-Download `mapping.zip` from the [Releases](https://github.com/niccellular/gadget/releases) page. It contains `mapping.txt` files for each ATAK version. Copy the one matching your ATAK version into your SDK root:
+Obtain the ProGuard mapping for the exact official ATAK build you use. For older supported versions, `mapping.zip` on the [Releases](https://github.com/niccellular/gadget/releases) page contains versioned mappings. That archive currently has no 5.8 mapping. Once a matching 5.8 mapping is available, copy it into your SDK root:
 
 ```bash
-# Example for ATAK 5.7.0
-cp mapping-5.7.0.txt /path/to/ATAK-CIV-5.7.0.0-SDK/mapping.txt
+# Use the mapping supplied for your exact ATAK 5.8 host build.
+cp /path/to/matching-host-mapping.txt /path/to/ATAK-CIV-5.8.0.3-SDK/mapping.txt
 ```
 
 The SDK's build system (`-applymapping <atak.proguard.mapping>`) picks this up automatically. All subsequent `./gradlew assembleCivRelease` builds will produce correctly obfuscated bytecode.
 
 ### 2. Install Gadget
 
-Download the signed Gadget APK for your ATAK version from [Releases](https://github.com/niccellular/gadget/releases) and install it:
+Obtain a TAK pipeline-signed Gadget APK for ATAK 5.8 and install it. Until a 5.8 release is published, this requires submitting the updated source to the signing pipeline:
 
 ```bash
-adb install gadget-5.7.0-signed.apk
+adb install /path/to/gadget-5.8.0-signed.apk
 ```
 
 ### 3. Install Your Plugin
@@ -93,14 +105,28 @@ After hooking, `AtakPluginRegistry.loadPlugin()` is called. ATAK handles everyth
 
 ## Building from Source
 
+Use JDK 17, Android SDK platform 36, NDK `25.1.8937393`, CMake `3.22.1`,
+and the ATAK CIV 5.8 SDK. Android Gradle Plugin can install missing native tools
+if the Android SDK licenses have already been accepted.
+
+For a local SDK developer-host build, if the SDK has no `mapping.txt`, create
+an empty one in that SDK directory. This preserves SDK class names and is only
+for the unobfuscated SDK host. For official ATAK, use the exact host's real
+mapping instead; an empty file or another version's mapping is insufficient.
+
 ```bash
 cp template.local.properties local.properties
-# Edit local.properties: sdk.dir=/path/to/android/sdk
+# Edit all three paths: sdk.dir, sdk.path, and takdev.plugin.
+# sdk.path is the ATAK SDK root containing main.jar and android_keystore.
+# takdev.plugin is that SDK's atak-gradle-takdev.jar.
 
-./gradlew assembleCivRelease
+./gradlew assembleCivDebug assembleCivRelease lintCivRelease
 ```
 
-The APK will be at `app/build/outputs/apk/civ/release/ATAK-Plugin-gadget-*.apk`. This SDK-signed build works on the SDK developer build of ATAK. For official ATAK, submit the source to the TAK signing pipeline.
+APKs are written to `app/build/outputs/apk/civ/{debug,release}/`. These local
+builds use the SDK development key. Official ATAK requires a TAK pipeline-signed
+Gadget build and matching obfuscation. Submit the source to the TAK signing
+pipeline; a successful local build alone does not establish official-host loading.
 
 ## Project Structure
 
